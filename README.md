@@ -1,7 +1,7 @@
 # Magabot
 The Magabot is a low-cost open source robotics platform designed to give mobility to any portable computer (laptop on wheels concept). This is a entry level robot platform and it targets the edutainment market.
 
-INSERT IMAGE OF THE MAGABOT
+![Magabot](images/MAGA_02s.jpg)
 
 The platform includes the following main features:
 
