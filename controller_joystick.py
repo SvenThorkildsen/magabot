@@ -138,6 +138,13 @@ def send_controller_state_to_arduino(joystick):
     send_message_to_arduino(byte_array)
 
 
+def stop_motors():
+    """Sends the stop command to the motors."""
+    byte_array = bytes([MOTOR_BYTE, 0x00, 0x00, 0x00, 0x00])
+    send_message_to_arduino(byte_array)
+    print("Motors stopped.")
+
+
 if __name__ == "__main__":
     joystick = pygame.joystick.Joystick(0)
     joystick.init()
