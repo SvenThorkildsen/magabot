@@ -4,6 +4,8 @@ from time import sleep
 
 '''
 NOTE: There is something wrong witht the left/right turning of the joystick and arrows.
+
+This program should control the Magabot throught the left joystick
 '''
 
 # Constants

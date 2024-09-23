@@ -6,6 +6,8 @@ from time import sleep
 NOTE:
 The controller works for forward/backward movement and turning in place.
 It struggles with combining speed and turning when both are pushed simultaneously.
+
+This program uses left joystick for forward/backward movement, and right joystick for turning.
 '''
 
 # Constants
