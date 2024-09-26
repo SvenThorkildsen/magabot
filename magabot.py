@@ -1,4 +1,4 @@
-import atexit  # To handle program termination
+import atexit
 import cv2
 import numpy as np
 import pygame
@@ -14,7 +14,7 @@ MIN_ACTUATION_VELOCITY = 3  # Minimum velocity to actuate motors
 MOTOR_BYTE = 0x86
 dir1 = 0  # Direction for left wheel
 dir2 = 0  # Direction for right wheel
-DELAY_BETWEEN_COMMANDS = 0.08  # 50ms delay between sending each command
+DELAY_BETWEEN_COMMANDS = 0.21  # 210ms delay between sending each command to ensure Arduino can process each
 
 # Serial communication setup for Raspberry Pi to Arduino
 ser = serial.Serial('/dev/ttyS0', 9600)
@@ -29,15 +29,22 @@ camera_mode = False
 # Camera stuff
 # Constants and settings
 MOTOR_BYTE = 0x86
-# MAX_VELOCITY = 10
-# MIN_VELOCITY = 3
 REVERSE_VELOCITY = 5
-center_margin = 30
+# center_margin = 30
+center_margin = 2
 
 # PID controller parameters
-Kp = 0.05
-Ki = 0.005
-Kd = 0.01
+# Kp = 0.05
+# Ki = 0.005
+# Kd = 0.01
+# PID controller parameters (tuned)
+# Kp = 0.06
+# Ki = 0.004
+# Kd = 0.08
+# PID controller parameters (test)
+Kp = 5.0
+Ki = 0.0
+Kd = 0.75
 
 # Initialize variables
 prev_error = 0
@@ -45,9 +52,8 @@ integral = 0
 previous_time = time.time()
 
 # Initialize update timer
-timestamp = time.time()
 last_target_time = time.time()
-TARGET_LOSS_TIMEOUT = 1.0
+TARGET_LOSS_TIMEOUT = 0.5
 
 # MobileNet-SSD model paths
 MODEL_DIR = 'MobileNet-SSD-master'
@@ -57,25 +63,49 @@ caffemodel_path = f'{MODEL_DIR}/mobilenet_iter_73000.caffemodel'
 # Load the pre-trained MobileNetSSD model
 net = cv2.dnn.readNetFromCaffe(deploy_prototxt_path, caffemodel_path)
 
-# List of class labels MobileNetSSD can detect
-CLASSES = ["background", "aeroplane", "bicycle", "bird", "boat",
-           "bottle", "bus", "car", "cat", "chair", "cow", "diningtable",
-           "dog", "horse", "motorbike", "person", "pottedplant", "sheep",
-           "sofa", "train", "tvmonitor"]
+# TEST: Set backend and target for DNN inference
+net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)  # Use OpenCV's default backend optimized for CPU
+net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)  # Use the CPU for inference
+# net.setPreferableTarget(cv2.dnn.DNN_TARGET_OPENCL_FP16) # Alternative method, not suitable for RPi
 
-TARGET_OBJECT = "person"
+# List of class labels MobileNetSSD can detect
+# CLASSES = ["background", "aeroplane", "bicycle", "bird", "boat",
+#            "bottle", "bus", "car", "cat", "chair", "cow", "diningtable",
+#            "dog", "horse", "motorbike", "person", "pottedplant", "sheep",
+#            "sofa", "train", "tvmonitor"]
+
+# TARGET_OBJECT = "person"
+PERSON_CLASS_ID = 15 # Select the "person" class directly
+
+# print(cv2.getBuildInformation())
+
 
 # Global variable for the frame
 frame = None
 
+last_send_time = 0  # Initialize a global variable to track the last send time
+
 def send_message_to_arduino(message):
-    try:
-        # Send message to Arduino over Serial
-        ser.write(message)
-        print(f"Message sent successfully to Arduino: {list(message)}")
-        sleep(DELAY_BETWEEN_COMMANDS)  # Ensure Arduino has time to process
-    except serial.SerialException as e:
-        print(f"Error sending message to Arduino: {e}")
+    global last_send_time  # Access the global last send time
+    
+    current_time = time.time()
+
+    # Check if enough time has passed since the last command
+    if current_time - last_send_time >= DELAY_BETWEEN_COMMANDS:
+        try:
+            # Send message to Arduino over Serial
+            ser.write(message)
+            print(f"Message sent to Arduino: {list(message)}")
+            
+            # Update the last send time
+            last_send_time = time.time()
+            
+        except serial.SerialException as e:
+            print(f"Error sending message to Arduino: {e}")
+    # else:
+    #     # If not enough time has passed, skip this transmission
+    #     print(f"Skipping command transmission. Waiting for {DELAY_BETWEEN_COMMANDS - (current_time - last_send_time):.4f} seconds.")
+
 
 def convert_to_velocity(axis_value):
     """ Map joystick axis input (-1.0 to 1.0) to motor velocity """
@@ -129,10 +159,6 @@ def send_controller_state_to_arduino(joystick):
     
     # Turning velocity based on left/right movement
     turn_velocity = apply_min_velocity(convert_to_velocity(axis_x))
-
-    # Log joystick input and velocities for debugging
-    # print(f"Joystick Input -> axis_x: {axis_x}, axis_y: {axis_y}")
-    # print(f"Calculated Velocities -> vel1: {velocity}, turn_velocity: {turn_velocity}")
 
     # Check for forward/backward movement first (vertical axis)
     if axis_y != 0:
@@ -193,10 +219,12 @@ def stop_motors():
     """Sends the stop command to the motors."""
     byte_array = bytes([MOTOR_BYTE, 0x00, 0x00, 0x00, 0x00])
     send_message_to_arduino(byte_array)
-    print("Motors stopped.")
+    # print("Motors stopped.")
 
 
 def adjust_velocity_and_send(error, max_error, reversing=False):
+    # start_time = time.time()  # Start timer for velocity adjustment
+    
     if reversing:
         vel1 = REVERSE_VELOCITY
         vel2 = REVERSE_VELOCITY
@@ -220,54 +248,124 @@ def adjust_velocity_and_send(error, max_error, reversing=False):
 
     byte_array = bytes([MOTOR_BYTE, vel1, dir1, vel2, dir2])
     send_message_to_arduino(byte_array)
+    # end_time = time.time()  # End timer for velocity adjustment
+    # print(f"Velocity adjustment and send took {end_time - start_time:.4f} seconds")
+
 
 def map_error_to_velocity(error, max_error):
     normalized_error = abs(error) / max_error
     forward_velocity = MAX_VELOCITY - (MAX_VELOCITY - MIN_ACTUATION_VELOCITY) * normalized_error
     rotation_velocity = (MAX_VELOCITY - MIN_ACTUATION_VELOCITY) * normalized_error
     forward_velocity = int(max(MIN_ACTUATION_VELOCITY, min(forward_velocity, MAX_VELOCITY)))
-    rotation_velocity = int(max(0, rotation_velocity))
+    rotation_velocity = int(max(0, rotation_velocity)) * 0.5 # scaling factor added for testing purposes
     return forward_velocity, rotation_velocity
 
-def find_object_position(frame):
-    # Ensure frame has 3 channels (BGR), not 4 (BGRA)
+frame_counter = 0  # Frame counter to subsample frames
+
+def find_object_position(frame, frame_skip=4):
+    global frame_counter
+    overall_start_time = time.time()  # Start timing the entire object detection function
+
+    # Increment frame counter and skip frames as needed
+    frame_counter += 1
+    if frame_counter % frame_skip != 0:
+        # print("Skipping object detection on this frame")
+        return None
+
+    # Timer for getting frame dimensions
+    # frame_dims_start_time = time.time()
+    # Get height and width of the frame
+    (h, w) = frame.shape[:2]
+    frame_aspect_ratio = h / w # 2464 / 3280 based on RPi camera's maximum resolution
+    # frame_dims_end_time = time.time()
+    # print(f"Frame dimensions calculation took {frame_dims_end_time - frame_dims_start_time:.4f} seconds")
+
+    # Timer for scaling frame size
+    # scaling_start_time = time.time()
+    scaling_factor = 0.1  # Scaling factor for reducing size of frame (~0.069 should provide the minimal required size)
+    scaled_width = int(w * scaling_factor)  # Scale down the resolution of the frame
+    scaled_height = int(scaled_width * frame_aspect_ratio)  # Maintain the ratio
+    print("Frame size: (" + str(w) + ", " + str(h) + ")")
+    print("Scaled frame: (" + str(scaled_width) + ", " + str(scaled_height) + ")")
+    # scaling_end_time = time.time()
+    # print(f"Frame scaling calculation took {scaling_end_time - scaling_start_time:.4f} seconds")
+
+
+    # Timer for converting to 3 channels
+    channel_conversion_start_time = time.time()
     if frame.shape[2] == 4:  # Check if the image has 4 channels
         frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)  # Convert from BGRA to BGR
+    channel_conversion_end_time = time.time()
+    print(f"Channel conversion took {channel_conversion_end_time - channel_conversion_start_time:.4f} seconds")
 
-    (h, w) = frame.shape[:2]
-    blob = cv2.dnn.blobFromImage(cv2.resize(frame, (300, 300)), 0.007843, (300, 300), 127.5)
+    # Timer for creating the blob from the image
+    blob_creation_start_time = time.time()
+    # blob = cv2.dnn.blobFromImage(reduced_frame, 0.007843, (reduced_frame_width, reduced_frame_height), 127.5)
+    blob = cv2.dnn.blobFromImage(frame, 0.007843, (scaled_width, scaled_height), 127.5)
     net.setInput(blob)
-    detections = net.forward()
+    blob_creation_end_time = time.time()
+    print(f"Blob creation took {blob_creation_end_time - blob_creation_start_time:.4f} seconds")
 
+    # Timer for DNN forward pass
+    dnn_forward_start_time = time.time()
+    detections = net.forward()
+    dnn_forward_end_time = time.time()
+    print(f"DNN forward pass took {dnn_forward_end_time - dnn_forward_start_time:.4f} seconds")
+
+    # Timer for parsing the detection results
+    detection_parsing_start_time = time.time()
     for i in np.arange(0, detections.shape[2]):
         confidence = detections[0, 0, i, 2]
-        if confidence > 0.4:
+        if confidence > 0.4:  # Keep a high confidence threshold
             idx = int(detections[0, 0, i, 1])
-            label = CLASSES[idx]
+            # label = CLASSES[idx]
 
-            if label == TARGET_OBJECT:
-                box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+            # if label == TARGET_OBJECT:
+            # Only process the "person" class (class id 15)
+            if idx == PERSON_CLASS_ID:
+                box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])  # Scale back to original frame size
                 (startX, startY, endX, endY) = box.astype("int")
                 cX = int((startX + endX) / 2)
 
-                cv2.rectangle(frame, (startX, startY), (endX, endY), (0, 255, 0), 2)
-                cv2.putText(frame, f"{label}: {confidence:.2f}", (startX, startY - 15),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                # Draw rectangle and label on the frame (optional for debugging)
+                # cv2.rectangle(frame, (startX, startY), (endX, endY), (0, 255, 0), 2)
+                # cv2.putText(frame, f"{label}: {confidence:.2f}", (startX, startY - 15),
+                #             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-                return cX, startX, startY, endX, endY
+                detection_parsing_end_time = time.time()
+                print(f"Detection parsing and drawing took {detection_parsing_end_time - detection_parsing_start_time:.4f} seconds")
+
+                overall_end_time = time.time()  # End timing the object detection function
+                print(f"Total object detection took {overall_end_time - overall_start_time:.4f} seconds\n")
+
+                # Early exit when object is found
+                print("Pos: " + str(cX))
+                return cX
+                # return cX, startX, startY, endX, endY
+
+    detection_parsing_end_time = time.time()
+    print(f"Detection parsing took {detection_parsing_end_time - detection_parsing_start_time:.4f} seconds (no object found)")
+
+    overall_end_time = time.time()  # End timing the object detection function
+    print(f"Total object detection took {overall_end_time - overall_start_time:.4f} seconds (no object found)\n")
+
     return None
+
 
 def camera_thread():
     global frame
     picam2 = Picamera2()
 
-    config = picam2.create_preview_configuration(main={"size": (3280, 2464)})
+    config = picam2.create_preview_configuration(main={"size": (3280, 1232)})
     picam2.configure(config)
     picam2.start()
 
     while True:
+        start_time = time.time()  # Start timer for frame capture
         frame = picam2.capture_array()
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        end_time = time.time()  # End timer for frame capture
+        # print(f"Frame capture took {end_time - start_time:.4f} seconds")
 
 threading.Thread(target=camera_thread, daemon=True).start()
 
@@ -279,6 +377,7 @@ def main():
 
     # Camera stuff
     global prev_error, integral, previous_time, last_target_time, frame, camera_mode
+    # alpha = 0.1
     alpha = 0.1
     filtered_error = 0
 
@@ -290,21 +389,24 @@ def main():
         time.sleep(0.1)
 
     while True:
+        loop_start_time = time.time()  # Start timing the iteration
+
         pygame.event.pump()  # Update internal states
         
         # Check if Y button (typically index 3) is pressed
         if joystick.get_button(3):
             camera_mode = True
+            print("CAMERA MODE")
         elif joystick.get_button(1):
             camera_mode = False
+            print("JOYSTICK MODE")
 
         if camera_mode:
-            print("Camera mode enabled")
-            # sleep(1)
-            result = find_object_position(frame)
+            pos = find_object_position(frame)
 
-            if result is not None:
-                cX, startX, startY, endX, endY = result
+            if pos is not None:
+                # cX, startX, startY, endX, endY = pos
+                cX = pos
                 target_position = frame.shape[1] // 2
                 error = target_position - cX
                 max_error = target_position
@@ -329,9 +431,13 @@ def main():
                 if time.time() - last_target_time > TARGET_LOSS_TIMEOUT:
                     stop_motors()
 
-        else:
+        else:            
             send_controller_state_to_arduino(joystick)
-            sleep(0.16)  # 60 FPS
+            sleep(0.016)  # 60 FPS
+        
+        loop_duration = time.time() - loop_start_time
+        if loop_duration > 0.03:
+            print(f"Loop iteration took {loop_duration:.4f} seconds\n")
 
 
 
