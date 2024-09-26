@@ -72,7 +72,7 @@ void setup() {
 void loop() 
 { 
   // Read the battery status
-  read_BAT();
+  // read_BAT();
 
   Wire.beginTransmission(0x39);
   Wire.write((byte) 1);
@@ -83,7 +83,6 @@ void loop()
   Wire.endTransmission();
 
   actuateMotors(veloc1, veloc2);
-  delay(5);
 
   // Read bumpers before checking serial input
   bumpRead();
@@ -96,29 +95,18 @@ void loop()
     return;
   }
 
-  // Timer for the sonar
-  // sonarTime = millis();
-
-  // Check if there are any 
+  // Read sonar sensors, set RGB LEDs based on distances recorded 
   sonar();
-
-  // Serial.println(millis() - sonarTime);
-
-  // delay(1000); // Debugging
-
-  // TODO: Print sonar time
 
   // Process serial commands only if no bumper is pressed
   if (Serial.available() > 0) 
   {
     inByte = Serial.read();
-    Serial.print("Decimal\n");
-    Serial.println(inByte);
+    // Serial.print("Decimal\n");
+    // Serial.println(inByte);
     MagaBotControllerSerial();
   }
 }
-
-
 
 //******************************************************//
 //******Measure distances recorded by sonar sensors*****//
@@ -126,92 +114,90 @@ void loop()
 
 void sonar()
 {
-  // Read sonar sensors
-  readAllSonarMeasurements();
+    // Continuously call the non-blocking sonar reading function
+    readAllSonarMeasurements();
 
-  // Initialize flag to check if any sonar is within range
-  bool sonarInRange = false;
+    // Initialize flag to check if any sonar is within range
+    bool sonarInRange = false;
 
-  for (int i = 1; i < 6; i++)  // Assuming sonar numbers are from 1 to 5
-  {
-    // Check if sonar reading is within the range between 1 and 50
-    if (Sonars[i] > 0 && Sonars[i] <= 50)
+    // Check if any sonar reading is within the range between 1 and 50 cm
+    for (int i = 1; i < 6; i++)  
     {
-      sonarInRange = true;  // Set flag to true if any sonar is in range
+        if (Sonars[i] > 0 && Sonars[i] <= 50)
+        {
+            sonarInRange = true;
+        }
     }
-  }
 
-  // Control RGB LEDs based on the sonar readings
-  if (sonarInRange)
-  {
-    // Turn on RGB LEDs: Red = 255, Green = 0, Blue = 0 (Red color for detection)
-    analogWrite(9, 255);   // Red
-    analogWrite(10, 0);    // Green
-    analogWrite(11, 0);    // Blue
-  }
-  else
-  {
-    // Turn off RGB LEDs (or set them to another color if you prefer)
-    analogWrite(9, 0);     // Red off
-    analogWrite(10, 255);    // Green
-    analogWrite(11, 255);    // Blue
-  }
+    // Control RGB LEDs based on the sonar readings
+    if (sonarInRange)
+    {
+        // Turn on RGB LEDs (Red color for detection)
+        analogWrite(9, 255);  // Red
+        analogWrite(10, 0);   // Green
+        analogWrite(11, 0);   // Blue
+    }
+    else
+    {
+        // Turn off RGB LEDs (set to Green/Blue)
+        analogWrite(9, 0);    // Red off
+        analogWrite(10, 255); // Green
+        analogWrite(11, 255); // Blue
+    }
 }
+
 
 void readAllSonarMeasurements()
 {
-    static unsigned long nextReadTime = 0;   // Time to perform the next read
-    static bool allSonarsTriggered = false;  // To track whether all sonars have been triggered
+    static int sonarIndex = 1;  // Current sonar to trigger/read
+    static unsigned long lastActionTime = 0;  // Last time action (trigger/read) was performed
+    static bool sonarTriggered = false;  // Whether the sonar has been triggered
 
-    // Check if it's time to trigger or read sonar
-    if (millis() > nextReadTime)
+    // Non-blocking: Check if it's time to perform the next action
+    if (millis() - lastActionTime >= 50)  // Allow 50ms between actions
     {
-        if (!allSonarsTriggered)
+        if (!sonarTriggered)
         {
-            // Trigger all sonar pings at once
-            for (int sonarIndex = 1; sonarIndex <= 5; sonarIndex++)
-            {
-                Wire.beginTransmission(0x70 + sonarIndex);  // Address the sonar sensor
-                Wire.write((byte) 0);                       // Register for command
-                Wire.write((byte) 0x51);                    // Command to trigger a sonar ping
-                Wire.endTransmission();
-            }
+            // Trigger sonar
+            Wire.beginTransmission(0x70 + sonarIndex);  // Address the sonar sensor
+            Wire.write((byte) 0);                       // Register for command
+            Wire.write((byte) 0x51);                    // Command to trigger a sonar ping
+            Wire.endTransmission();
 
-            allSonarsTriggered = true;       // Mark that we have triggered all sonars
-            nextReadTime = millis() + 100;   // Wait 200 ms for the sonar to complete measurement
+            sonarTriggered = true;  // Mark this sonar as triggered
+            lastActionTime = millis();  // Update the last action time
         }
         else
         {
-            // Read all sonar measurements after the delay
-            for (int sonarIndex = 1; sonarIndex <= 5; sonarIndex++)
-            {
-                // Request the measurement data from the sonar
-                Wire.beginTransmission(0x70 + sonarIndex);
-                Wire.write((byte) 0x02);                     // Register for distance result
-                Wire.endTransmission();
+            // Read sonar data after triggering
+            Wire.beginTransmission(0x70 + sonarIndex);
+            Wire.write((byte) 0x02);  // Request distance result
+            Wire.endTransmission();
 
-                // Read 2 bytes from the sonar sensor (16-bit distance measurement)
-                Wire.requestFrom(0x70 + sonarIndex, 2);
-                if (Wire.available() == 2)
-                {
-                    int reading = Wire.read() << 8;          // Read high byte and shift
-                    reading |= Wire.read();                  // Read low byte and combine
-                    Sonars[sonarIndex] = reading;            // Store the reading in the sonar array
-                    Serial.print("Sonar[");
-                    Serial.print(sonarIndex);
-                    Serial.print("]: ");
-                    Serial.println(Sonars[sonarIndex]);
-                }
-                else
-                {
-                    Serial.print("Error reading sonar: ");
-                    Serial.println(sonarIndex);
-                    Sonars[sonarIndex] = -1;  // Assign -1 for failed readings
-                }
+            Wire.requestFrom(0x70 + sonarIndex, 2);
+            if (Wire.available() == 2)
+            {
+                int reading = Wire.read() << 8;  // Read high byte and shift
+                reading |= Wire.read();          // Read low byte and combine
+                Sonars[sonarIndex] = reading;    // Store the reading in the sonar array
+                // Serial.print("Sonar[");
+                // Serial.print(sonarIndex);
+                // Serial.print("]: ");
+                // Serial.println(Sonars[sonarIndex]);
+            }
+            else
+            {
+                Serial.print("Error reading sonar: ");
+                Serial.println(sonarIndex);
+                Sonars[sonarIndex] = -1;  // Assign -1 for failed readings
             }
 
-            allSonarsTriggered = false;     // Reset for the next iteration
-            nextReadTime = millis() + 100;   // Allow a short break before the next iteration
+            // Move to the next sonar after reading
+            sonarTriggered = false;  // Reset trigger flag
+            sonarIndex++;  // Move to the next sonar
+            if (sonarIndex > 5) sonarIndex = 1;  // Wrap around if we've read all sonars
+
+            lastActionTime = millis();  // Update the last action time
         }
     }
 }
@@ -613,15 +599,15 @@ void MagaBotControllerSerial()
           if (sensorValue4==1) {Serial.write((unsigned char) 0);}else Serial.write((unsigned char) 1);
       }
       else if (inByte==0x76)  ponteiro=5; //LEDS
-      else if (inByte==0x86) {ponteiro=1;Serial.print("MOTORS_BYTE:");Serial.println(inByte);}
+      else if (inByte==0x86) {ponteiro=1;}//Serial.print("MOTORS_BYTE:");Serial.println(inByte);}
     }
-    else if (ponteiro==1) { veloc1 = inByte;ponteiro=2;Serial.print("veloc1:");Serial.println(veloc1);}
-    else if (ponteiro==2) { dir1 = inByte;ponteiro=3;Serial.print("dir1:");Serial.println(dir1);}
-    else if (ponteiro==3) { veloc2 = inByte;ponteiro=4;Serial.print("veloc2:");Serial.println(veloc2);}
+    else if (ponteiro==1) { veloc1 = inByte;ponteiro=2;}//Serial.print("veloc1:");Serial.println(veloc1);}
+    else if (ponteiro==2) { dir1 = inByte;ponteiro=3;}//Serial.print("dir1:");Serial.println(dir1);}
+    else if (ponteiro==3) { veloc2 = inByte;ponteiro=4;}//Serial.print("veloc2:");Serial.println(veloc2);}
     else if (ponteiro==4) 
     {
       dir2 = inByte;
-      ponteiro=0;Serial.print("dir2:");Serial.println(dir2);
+      ponteiro=0;//Serial.print("dir2:");Serial.println(dir2);
       if (dir1 == 1) veloc1 = -veloc1;
       if (dir2 == 1) veloc2 = -veloc2;
 
@@ -804,3 +790,5 @@ void AssistedNavigation()
   }
   
 }
+
+
