@@ -22,6 +22,9 @@ This repository contains the necessary programs for controlling the Magabot.
 The Raspberry Pi runs controller programs that send movement commands to the Arduino.
 These programs are run on the Raspberry Pi Model 4B which is connected to a camera.
 
+The Raspberry Pi can accessed directly by connecting it to a keyboard, mouse and screen.
+To access it through SSH, the command *ssh pi@raspberrypi.local* can be used as long as the computers are connected to the same network.
+
 
 ### magabot.py
 This application combines the joystick and camera controllers.
