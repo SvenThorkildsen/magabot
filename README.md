@@ -22,6 +22,39 @@ This repository contains the necessary programs for controlling the Magabot.
 The Raspberry Pi runs controller programs that send movement commands to the Arduino.
 These programs are run on the Raspberry Pi Model 4B which is connected to a camera.
 
+
+### magabot.py
+This application combines the joystick and camera controllers.
+Upon launch the Magabot can be controlled remotely by the joystick.
+By pressing the "Y" button, the Magabot switches to the "follow me" mode, where the robot follows the person in the camera frame.
+Press "B" button to return to remote control.
+
+
+#### Current state
+- Detect a person within a distance range of ~0.3-3.5 meters.
+- Approach and stop around 30cm from the person.
+- Signal if object is detected within sonar range, <50cm.
+- Stop if Magabot's bumpers touches an object.
+
+#### Next steps
+- Identify specific persons, only follow the desired user.
+- Use sonar readings for obstacle avoidance.
+- Keep a set distance to the user.
+
+### leash.py
+This application builds on the joystick controller to enable the robot to follow a user holding a leash.
+The leash is attached to a joystick mounted on the Magabot.
+A highly elastic leash is recommended, as this will give the user freedom to move independently of the Magabot's speed.
+
+
+#### Current state
+- Follow user when the handheld controller is mounted on the Magabot and leash is attached to the left joystick.
+
+#### Next steps
+- Mount a single joystick on the Magabot, connected to the Raspberry Pi.
+- Add a tension measurement sensor to the leash/joystick, enabling the Magabot to regulate its speed based on how far away the user is.
+  
+
 ### Camera controller
 This program uses the camera mounted on the Magabot to follow the user.
 
@@ -40,10 +73,6 @@ The controller can be connected to the Raspberry Pi through a USB Bluetooth adap
 
 #### Current state
 Control the Magabot's speed and direction.
-
-#### Next steps
-- Fix logic related to turning left/right
-- Calibrate controller
 
 
 ## Arduino
@@ -78,6 +107,11 @@ Commands are sent periodically (with a short delay) to ensure smooth control of 
 
 #### Next steps
 - Implement functionality for utilizing the sonar readings for obstacle avoidance and speed control.
+
+
+### ESP32
+This wifi module can be used to interface with the Arduino from a remote computer.
+Note: This component was replaced by the Raspberry Pi to make the Magabot more generalizable, but can easily be re-installed by swapping the UART connectors.
 
 
 ## Computer vision
